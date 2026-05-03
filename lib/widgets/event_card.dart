@@ -2,16 +2,19 @@ import 'package:flutter/material.dart';
 
 import '../models/event.dart';
 import '../theme/app_theme.dart';
+import 'live_badge.dart';
 
 class EventCard extends StatelessWidget {
   final EventItem event;
   final double? distanceKm;
+  final bool isLive;
   final VoidCallback? onTap;
 
   const EventCard({
     super.key,
     required this.event,
     this.distanceKm,
+    this.isLive = false,
     this.onTap,
   });
 
@@ -36,7 +39,8 @@ class EventCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(22)),
               child: Container(
                 height: 150,
                 width: double.infinity,
@@ -76,6 +80,12 @@ class EventCard extends StatelessWidget {
                             style: const TextStyle(fontSize: 20)),
                       ),
                     ),
+                    if (isLive)
+                      const Positioned(
+                        left: 14,
+                        top: 14,
+                        child: LiveBadge(),
+                      ),
                   ],
                 ),
               ),
@@ -85,12 +95,21 @@ class EventCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    event.startTimeLabel,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textMuted,
-                    ),
+                  Row(
+                    children: [
+                      const Icon(Icons.access_time,
+                          size: 12, color: AppColors.textMuted),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          event.startTimeLabel,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textMuted,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -100,6 +119,8 @@ class EventCard extends StatelessWidget {
                       fontWeight: FontWeight.w700,
                       color: AppColors.textPrimary,
                     ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 8),
                   Row(
@@ -109,9 +130,7 @@ class EventCard extends StatelessWidget {
                       const SizedBox(width: 4),
                       Expanded(
                         child: Text(
-                          distanceKm != null
-                              ? '${event.address} • ${distanceKm!.toStringAsFixed(1)} km'
-                              : event.address,
+                          event.address,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -120,6 +139,20 @@ class EventCard extends StatelessWidget {
                           ),
                         ),
                       ),
+                      if (distanceKm != null) ...[
+                        const Icon(Icons.directions_walk,
+                            size: 13, color: AppColors.textMuted),
+                        const SizedBox(width: 2),
+                        Text(
+                          _formatDistance(distanceKm!),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textMuted,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
                       Text(
                         event.isFree ? 'ฟรี' : '฿${event.price}',
                         style: TextStyle(
@@ -139,5 +172,11 @@ class EventCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _formatDistance(double km) {
+    if (km < 1) return '${(km * 1000).round()} m';
+    if (km < 10) return '${km.toStringAsFixed(1)} km';
+    return '${km.round()} km';
   }
 }

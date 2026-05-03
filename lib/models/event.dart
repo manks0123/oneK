@@ -36,12 +36,14 @@ class EventItem {
   final double latitude;
   final double longitude;
   final DateTime startAt;
+  final DateTime endAt;
   final String startTimeLabel;
   final EventCategory category;
   final bool isFree;
   final int? price;
   final List<Color> coverGradient;
   final String coverEmoji;
+  final String description;
 
   const EventItem({
     required this.id,
@@ -51,11 +53,17 @@ class EventItem {
     required this.latitude,
     required this.longitude,
     required this.startAt,
+    required this.endAt,
     required this.startTimeLabel,
     required this.category,
     required this.isFree,
     required this.coverGradient,
     required this.coverEmoji,
+    required this.description,
     this.price,
   });
+
+  bool isLiveAt(DateTime now) {
+    return !now.isBefore(startAt) && now.isBefore(endAt);
+  }
 }

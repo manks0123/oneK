@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../data/mock_database.dart';
 import '../models/event.dart';
 import '../models/province.dart';
+import '../services/auth_service.dart';
 import '../services/location_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/bottom_nav.dart';
@@ -10,6 +13,9 @@ import '../widgets/category_chip.dart';
 import '../widgets/event_calendar.dart';
 import '../widgets/event_card.dart';
 import '../widgets/province_picker_sheet.dart';
+import 'event_detail_screen.dart';
+import 'login_screen.dart';
+import 'plan_setup_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -32,10 +38,23 @@ class _HomeScreenState extends State<HomeScreen> {
   DateTime? _selectedDay;
   bool _calendarExpanded = false;
 
+  double? _userLat;
+  double? _userLng;
+  Timer? _liveTimer;
+
   @override
   void initState() {
     super.initState();
     _detectLocation();
+    _liveTimer = Timer.periodic(const Duration(seconds: 60), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _liveTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _detectLocation() async {
@@ -48,10 +67,66 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _detecting = false;
       _detectMessage = result.errorMessage;
+      _userLat = result.userLatitude;
+      _userLng = result.userLongitude;
       if (!_userPickedManually) {
         _selectedProvince = result.province;
       }
     });
+  }
+
+  double? _distanceToEvent(EventItem e) {
+    final lat = _userLat;
+    final lng = _userLng;
+    if (lat == null || lng == null) {
+      if (_selectedProvince == null) return null;
+      return LocationService.distanceKm(
+        _selectedProvince!.latitude,
+        _selectedProvince!.longitude,
+        e.latitude,
+        e.longitude,
+      );
+    }
+    return LocationService.distanceKm(lat, lng, e.latitude, e.longitude);
+  }
+
+  void _openEventDetail(EventItem e) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => EventDetailScreen(
+          event: e,
+          distanceKm: _distanceToEvent(e),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openLogin() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+    );
+  }
+
+  Future<void> _openPlanFlow() async {
+    if (!AuthService.instance.isLoggedIn) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('กรุณาเข้าสู่ระบบก่อนใช้ระบบวางแพลน'),
+        ),
+      );
+      await _openLogin();
+      if (!AuthService.instance.isLoggedIn) return;
+    }
+    if (!mounted || _selectedProvince == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlanSetupScreen(
+          initialProvince: _selectedProvince!,
+          userLat: _userLat,
+          userLng: _userLng,
+        ),
+      ),
+    );
   }
 
   Future<void> _pickProvince() async {
@@ -130,7 +205,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     _buildCalendarExpansion(),
                     const SizedBox(height: 16),
                     _buildSearchBar(),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
+                    _buildAiPlanBanner(),
+                    const SizedBox(height: 14),
                     _buildCategoryRow(),
                     const SizedBox(height: 18),
                     Row(
@@ -156,7 +233,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     if (events.isEmpty)
                       _buildEmptyState()
                     else
-                      ...events.map((e) => EventCard(event: e)),
+                      ...events.map((e) {
+                        final now = DateTime.now();
+                        return EventCard(
+                          event: e,
+                          isLive: e.isLiveAt(now),
+                          distanceKm: _distanceToEvent(e),
+                          onTap: () => _openEventDetail(e),
+                        );
+                      }),
                     const SizedBox(height: 12),
                   ],
                 ),
@@ -168,11 +253,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 setState(() => _navIndex = i);
                 if (i == 2) _pickProvince();
               },
-              onCenterTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('สร้างอีเว้นใหม่ (mock)')),
-                );
-              },
+              onCenterTap: _openPlanFlow,
             ),
           ],
         ),
@@ -181,36 +262,150 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildHeader(Province? province, int count) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
+    return ValueListenableBuilder<AppUser?>(
+      valueListenable: AuthService.instance.currentUser,
+      builder: (context, user, _) {
+        final displayName = user?.name ?? 'ผู้มาเยือน';
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'สวัสดี ',
-              style: TextStyle(
-                  fontSize: 26, fontWeight: FontWeight.w800),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Row(
+                    children: [
+                      const Text(
+                        'สวัสดี ',
+                        style: TextStyle(
+                            fontSize: 24, fontWeight: FontWeight.w800),
+                      ),
+                      Flexible(
+                        child: Text(
+                          '$displayName!',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.accentPink),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Text('✨', style: TextStyle(fontSize: 20)),
+                    ],
+                  ),
+                ),
+                _buildAuthButton(user),
+              ],
             ),
-            const Text(
-              'คุณนิว!',
-              style: TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.accentPink),
+            const SizedBox(height: 4),
+            Text(
+              province == null
+                  ? 'กำลังหาตำแหน่งของคุณ...'
+                  : 'ที่${province.name}วันนี้ มี $count events น่าสนใจ',
+              style:
+                  const TextStyle(fontSize: 13, color: AppColors.textMuted),
             ),
-            const SizedBox(width: 4),
-            const Text('✨', style: TextStyle(fontSize: 22)),
           ],
+        );
+      },
+    );
+  }
+
+  Widget _buildAuthButton(AppUser? user) {
+    if (user == null) {
+      return GestureDetector(
+        onTap: _openLogin,
+        child: Container(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppColors.accentPink,
+            borderRadius: BorderRadius.circular(999),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.accentPink.withValues(alpha: 0.3),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.login, size: 14, color: Colors.white),
+              SizedBox(width: 4),
+              Text('เข้าสู่ระบบ',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800)),
+            ],
+          ),
         ),
-        const SizedBox(height: 4),
-        Text(
-          province == null
-              ? 'กำลังหาตำแหน่งของคุณ...'
-              : 'ที่${province.name}วันนี้ มี $count events น่าสนใจ',
-          style: const TextStyle(fontSize: 13, color: AppColors.textMuted),
+      );
+    }
+
+    return PopupMenuButton<String>(
+      offset: const Offset(0, 44),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+      ),
+      onSelected: (v) {
+        if (v == 'logout') {
+          AuthService.instance.logout();
+        } else if (v == 'plan') {
+          _openPlanFlow();
+        }
+      },
+      itemBuilder: (_) => [
+        PopupMenuItem(
+          value: 'plan',
+          child: Row(
+            children: const [
+              Icon(Icons.auto_awesome,
+                  size: 16, color: AppColors.accentPink),
+              SizedBox(width: 8),
+              Text('สร้างแพลนทริป'),
+            ],
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'logout',
+          child: Row(
+            children: [
+              Icon(Icons.logout, size: 16),
+              SizedBox(width: 8),
+              Text('ออกจากระบบ'),
+            ],
+          ),
         ),
       ],
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: AppColors.accentPink,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.accentPink.withValues(alpha: 0.3),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          user.initial,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w800,
+            fontSize: 16,
+          ),
+        ),
+      ),
     );
   }
 
@@ -290,6 +485,73 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAiPlanBanner() {
+    return GestureDetector(
+      onTap: _openPlanFlow,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFFFFB199), Color(0xFFFFD26F)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFFFFB199).withValues(alpha: 0.4),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.25),
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: const Icon(Icons.auto_awesome,
+                  color: Colors.white, size: 22),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'AI SMART ITINERARY',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      letterSpacing: 1.2,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'สร้างแพลนทริปอัตโนมัติด้วย AI',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.arrow_forward_ios,
+                color: Colors.white, size: 16),
           ],
         ),
       ),
@@ -414,6 +676,12 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  static const _chipCategories = <EventCategory>[
+    EventCategory.festival,
+    EventCategory.food,
+    EventCategory.workshop,
+  ];
+
   Widget _buildCategoryRow() {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -425,7 +693,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onTap: () => setState(() => _categoryFilter = null),
           ),
           const SizedBox(width: 8),
-          ...EventCategory.values.map((c) {
+          ..._chipCategories.map((c) {
             return Padding(
               padding: const EdgeInsets.only(right: 8),
               child: CategoryChip(
@@ -441,21 +709,75 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildEmptyState() {
+    final hasCategory = _categoryFilter != null;
+    final hasSearch = _searchQuery.trim().isNotEmpty;
+    final hasDay = _selectedDay != null;
+    final hasFilter = hasCategory || hasSearch || hasDay;
+    final provinceName = _selectedProvince?.name ?? 'จังหวัดที่เลือก';
+
+    final String title;
+    final String subtitle;
+    if (hasCategory && !hasSearch && !hasDay) {
+      title = 'ไม่พบ Event ในหมวดนี้';
+      subtitle = 'ลองเลือกหมวดอื่น หรือกด "ทั้งหมด"';
+    } else if (hasFilter) {
+      title = 'ไม่พบ Event ตามเงื่อนไขนี้';
+      subtitle = 'ลองล้างตัวกรอง หรือเลือกวันที่อื่น';
+    } else {
+      title = 'ตอนนี้ยังไม่มีอีเว้นใน$provinceName';
+      subtitle = 'ลองเปลี่ยนจังหวัด หรือกลับมาดูใหม่อีกครั้ง';
+    }
+
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 40),
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.black.withValues(alpha: 0.05)),
+      ),
       alignment: Alignment.center,
       child: Column(
         children: [
-          const Text('🌧️', style: TextStyle(fontSize: 36)),
-          const SizedBox(height: 8),
-          const Text('ยังไม่มีอีเว้นในเงื่อนไขนี้',
-              style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary)),
+          const Text('🌧️', style: TextStyle(fontSize: 40)),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+            ),
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: 4),
-          const Text('ลองเปลี่ยนหมวดหมู่ หรือจังหวัด',
-              style: TextStyle(
-                  fontSize: 12, color: AppColors.textMuted)),
+          Text(
+            subtitle,
+            style: const TextStyle(
+                fontSize: 12, color: AppColors.textMuted),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            children: [
+              if (hasFilter)
+                OutlinedButton.icon(
+                  onPressed: () => setState(() {
+                    _categoryFilter = null;
+                    _searchQuery = '';
+                    _selectedDay = null;
+                  }),
+                  icon: const Icon(Icons.refresh, size: 16),
+                  label: const Text('ล้างตัวกรอง'),
+                ),
+              OutlinedButton.icon(
+                onPressed: _pickProvince,
+                icon: const Icon(Icons.place_outlined, size: 16),
+                label: const Text('เปลี่ยนจังหวัด'),
+              ),
+            ],
+          ),
         ],
       ),
     );

@@ -10,12 +10,16 @@ class LocationResult {
   final double? distanceKm;
   final bool fromGps;
   final String? errorMessage;
+  final double? userLatitude;
+  final double? userLongitude;
 
   const LocationResult({
     required this.province,
     required this.fromGps,
     this.distanceKm,
     this.errorMessage,
+    this.userLatitude,
+    this.userLongitude,
   });
 }
 
@@ -60,7 +64,8 @@ class LocationService {
         ),
       );
 
-      return _matchNearestProvince(pos.latitude, pos.longitude);
+      return _matchNearestProvince(pos.latitude, pos.longitude,
+          userLat: pos.latitude, userLng: pos.longitude);
     } catch (e) {
       return LocationResult(
         province: _fallback,
@@ -70,7 +75,8 @@ class LocationService {
     }
   }
 
-  LocationResult _matchNearestProvince(double lat, double lng) {
+  LocationResult _matchNearestProvince(double lat, double lng,
+      {double? userLat, double? userLng}) {
     Province nearest = MockDatabase.provinces.first;
     double nearestDist = double.infinity;
 
@@ -85,8 +91,14 @@ class LocationService {
       province: nearest,
       distanceKm: nearestDist,
       fromGps: true,
+      userLatitude: userLat,
+      userLongitude: userLng,
     );
   }
+
+  static double distanceKm(
+          double lat1, double lon1, double lat2, double lon2) =>
+      _haversineKm(lat1, lon1, lat2, lon2);
 
   static double _haversineKm(
       double lat1, double lon1, double lat2, double lon2) {
