@@ -7,6 +7,7 @@ import '../services/location_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/bottom_nav.dart';
 import '../widgets/category_chip.dart';
+import '../widgets/event_calendar.dart';
 import '../widgets/event_card.dart';
 import '../widgets/province_picker_sheet.dart';
 
@@ -28,6 +29,8 @@ class _HomeScreenState extends State<HomeScreen> {
   EventCategory? _categoryFilter;
   int _navIndex = 0;
   String _searchQuery = '';
+  DateTime? _selectedDay;
+  bool _calendarExpanded = false;
 
   @override
   void initState() {
@@ -60,13 +63,18 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _selectedProvince = province;
         _userPickedManually = true;
+        _selectedDay = null;
       });
     }
   }
 
-  List<EventItem> get _visibleEvents {
+  List<EventItem> get _provinceEvents {
     if (_selectedProvince == null) return [];
-    var list = MockDatabase.eventsByProvince(_selectedProvince!.id);
+    return MockDatabase.eventsByProvince(_selectedProvince!.id);
+  }
+
+  List<EventItem> get _visibleEvents {
+    var list = _provinceEvents;
     if (_categoryFilter != null) {
       list = list.where((e) => e.category == _categoryFilter).toList();
     }
@@ -76,6 +84,15 @@ class _HomeScreenState extends State<HomeScreen> {
           .where((e) =>
               e.title.toLowerCase().contains(q) ||
               e.address.toLowerCase().contains(q))
+          .toList();
+    }
+    if (_selectedDay != null) {
+      final d = _selectedDay!;
+      list = list
+          .where((e) =>
+              e.startAt.year == d.year &&
+              e.startAt.month == d.month &&
+              e.startAt.day == d.day)
           .toList();
     }
     return list;
@@ -100,18 +117,30 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     _buildHeader(province, events.length),
                     const SizedBox(height: 16),
-                    _buildLocationBar(),
+                    IntrinsicHeight(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(child: _buildLocationBar()),
+                          const SizedBox(width: 8),
+                          _buildCalendarPill(),
+                        ],
+                      ),
+                    ),
+                    _buildCalendarExpansion(),
                     const SizedBox(height: 16),
                     _buildSearchBar(),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 12),
                     _buildCategoryRow(),
                     const SizedBox(height: 18),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'กำลังเกิดขึ้น',
-                          style: TextStyle(
+                        Text(
+                          _selectedDay != null
+                              ? 'อีเว้นวันที่ ${_selectedDay!.day}/${_selectedDay!.month}'
+                              : 'กำลังเกิดขึ้น',
+                          style: const TextStyle(
                               fontSize: 18, fontWeight: FontWeight.w800),
                         ),
                         Text(
@@ -291,6 +320,97 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  static const _thaiMonths = [
+    'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+    'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.',
+  ];
+
+  Widget _buildCalendarPill() {
+    final hasSelection = _selectedDay != null;
+    final shown = _selectedDay ?? DateTime.now();
+    final monthLabel = _thaiMonths[shown.month - 1];
+    final beYear = shown.year + 543;
+
+    return GestureDetector(
+      onTap: () => setState(() => _calendarExpanded = !_calendarExpanded),
+      child: Container(
+        width: 96,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: _calendarExpanded || hasSelection
+              ? AppColors.accentYellow.withValues(alpha: 0.55)
+              : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border:
+              Border.all(color: Colors.black.withValues(alpha: 0.05)),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      '$monthLabel $beYear',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: AppColors.textMuted,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Icon(
+                  _calendarExpanded
+                      ? Icons.expand_less
+                      : Icons.expand_more,
+                  size: 14,
+                  color: AppColors.textMuted,
+                ),
+              ],
+            ),
+            Text(
+              '${shown.day}',
+              style: const TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.w800,
+                height: 1.05,
+                color: AppColors.accentPink,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCalendarExpansion() {
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+      alignment: Alignment.topCenter,
+      child: _calendarExpanded
+          ? Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: EventCalendar(
+                events: _provinceEvents,
+                selectedDay: _selectedDay,
+                onDaySelected: (d) {
+                  setState(() {
+                    _selectedDay = d;
+                    if (d != null) _calendarExpanded = false;
+                  });
+                },
+              ),
+            )
+          : const SizedBox.shrink(),
     );
   }
 
